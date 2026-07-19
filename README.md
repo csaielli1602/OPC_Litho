@@ -1,69 +1,85 @@
 # OPC & Resolution Enhancement Explorer
 
-An interactive, simplified explainer of optical proximity correction (OPC)
-and resolution enhancement in semiconductor photolithography — what we draw
-on the photomask vs. what actually prints on the wafer.
+A single-file explainer for optical proximity correction (OPC) in
+photolithography — the mask trick that makes it possible to print chip
+features smaller than the wavelength of light doing the printing. Draw the
+mask "wrong" in specific, calculated ways, and the blur of the optics
+reconstructs the shape you actually wanted.
 
-## What it demonstrates
+## How it actually works
 
-Chips are patterned by shining light through a stencil (the *photomask*), and
-at modern feature sizes the shapes are smaller than the wavelength of the
-light drawing them — so the printed result is a blurred version of the mask:
-corners round off, line ends pull back, thin features shrink. Chipmakers
-compensate by drawing the mask "wrong" on purpose. This tool lets you flip
-through the standard tricks and watch mask and print change side by side:
-rule-based vs. model-based OPC, serifs and hammerheads, shaped illumination
-(annular, quadrupole), sub-resolution assist features (SRAFs), and — in the
-periodic-pattern view — alternating phase-shift masks.
+Everything lives in `index.html`, one file, no dependencies. Three test
+shapes (rectangle, T-piece, zigzag) and a six-bar grating are defined as
+arrays of polygon points. Two SVG panels redraw on every control change: the
+mask panel shows what you'd actually draw — corrected polygon, plus serifs,
+hammerheads, or SRAFs depending on your settings — and the print panel shows
+a degraded, blurred version standing in for what lands on the wafer.
 
-## Simplifications made
+The degradation is four numbers per shape: corner-rounding radius, line-end
+pullback distance, uniform edge inset (or bloat), and a Gaussian blur
+`stdDeviation` applied through an SVG filter. Illumination mode sets a
+baseline for those four numbers (`ILLUM` in the source), OPC level
+multiplies them down (`OPCM`), and each shape carries its own severity
+multiplier so a busy zigzag degrades harder than a plain rectangle. Flip a
+control and the numbers animate to their new target over 320 ms with a
+smoothstep ease, re-rendering the print panel every frame — that's what
+makes switching OPC levels feel like the shape sharpening, rather than
+snapping between two static states.
 
-This is a teaching toy, not an optical simulation. Real OPC runs rigorous
-imaging models on large compute clusters; this tool deliberately does not:
+None of this touches actual optics. There's no diffraction integral, no
+Hopkins imaging model, no resist chemistry. The four defect numbers are
+chosen by hand so each control moves the print in the physically correct
+direction — quadrupole illumination genuinely does sharpen horizontal and
+vertical edges at the cost of rounder corners in real lithography, and that
+trade-off is deliberately preserved here, but the magnitudes are picked to
+look right on screen, not computed from wave optics.
 
-- **No optics are computed** — no diffraction, no Fourier/Hopkins imaging,
-  no photoresist chemistry.
-- The printed shape is the design target degraded by four hand-tuned
-  parameters (corner rounding, line-end pullback, edge thinning/bloat, and
-  edge softness), with values per toggle chosen so every control moves the
-  result in the physically correct *direction* with roughly the right
-  relative magnitude.
-- Illumination modes, OPC levels, SRAF benefits, and the phase-shift
-  sharpening are all **visually tuned approximations** of real qualitative
-  behaviors — including quadrupole's H/V-vs-corner trade-off, which is
-  deliberately preserved.
-- The mask decorations (staircase nudges, serifs, hammerheads, assist bars)
-  are illustrative geometry, not the output of a real OPC engine.
+## Toy vs. real calibration
+
+Production OPC doesn't degrade a shape with four scalar knobs. It runs a
+full imaging model (Hopkins or Abbe formulation, fed by measured scanner
+data — numerical aperture, illumination pupil shape, resist contrast
+curves) across every polygon edge on a mask, iterating the mask geometry
+until the simulated print matches the design target to single-digit
+nanometers, for hundreds of millions of shapes per layer. That's why OPC
+normally runs on a compute cluster overnight instead of reacting to a
+slider in real time. This tool compresses that whole pipeline into
+hand-picked numbers that move the right direction, so you can feel what
+rule-based versus model-based correction buys you, or why a phase-shift
+mask sharpens a grating, without any of the physics underneath.
 
 ## How to run it
 
-Open `opc_litho_visualizer.html` in any modern browser — just double-click
-it. No install, no build step, no server required; everything is one
-self-contained file.
+Open `index.html` in any modern browser — just double-click it. No install,
+no build step, no server required.
 
 ## File structure
 
-- `opc_litho_visualizer.html` — the whole tool: page, styles, both views, and
-  the stylized "print" model (commented in the source).
+- `index.html` — the whole tool: page, styles, both views, and the
+  stylized "print" model, with comments in the source explaining the
+  parameter tables.
 - `README.md` — this file.
 
 ## Credits / basis
 
-Conceptually based on standard semiconductor lithography references (optical
-proximity correction, off-axis illumination, sub-resolution assist features,
-alternating phase-shift masks). No claim of authorship of the underlying
+Concepts follow standard lithography references: optical proximity
+correction, off-axis illumination, sub-resolution assist features,
+alternating phase-shift masks. No claim of authorship over the underlying
 science. Companion piece to the Czochralski crystal-pulling simulator
 (`Silicon_Pull/`).
 
 ## Things to try
 
-- Zigzag + OPC Off: the "why OPC exists" baseline — rounded corners,
-  pulled-back ends, a thinned trace. Then Model-based + 2-D effects: the
-  print snaps to the dashed target.
-- With Model-based selected, flip the 2-D checkbox — the width stays right
+- Zigzag with OPC off: rounded corners, pulled-back ends, a thinned trace —
+  this is the baseline problem OPC exists to fix. Switch to model-based
+  with 2-D effects on and the print snaps onto the dashed target.
+- With model-based selected, toggle the 2-D checkbox. Width stays right
   either way, but corners and line ends only recover with 2-D on. Try the
-  same flip on the Rectangle: it barely moves.
-- Rectangle + Quadrupole looks nearly perfect; Zigzag + Quadrupole has
-  crisper edges but visibly rounder corners than Annular.
-- Grating view, everything Off: fat, merged bars. Toggle Alternating PSM —
-  the printed grating sharpens and thins dramatically.
+  same toggle on the rectangle — it barely moves, because a rectangle has
+  almost no 2-D complexity to fix.
+- Rectangle with quadrupole illumination looks nearly perfect. Zigzag with
+  quadrupole has crisper edges but visibly rounder corners than annular
+  gives you.
+- Switch to the grating view with everything off: fat, merged bars. Toggle
+  alternating phase-shift masking and watch the printed grating sharpen and
+  thin.
