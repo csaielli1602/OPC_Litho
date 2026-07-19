@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPC &amp; Resolution Enhancement Explorer — Photolithography</title>
+<style>
+  :root {
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --border:      rgba(255,255,255,0.10);
+    --series-1:    #3987e5;   /* mask features */
+    --series-2:    #2fa36b;   /* printed resist */
+    --phase:       #9a86ff;   /* 180° phase-shifted spaces */
+    --good:        #0ca30c;
+    --warning:     #fab219;
+    --critical:    #d03b3b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---- left: the two lithography panels ---- */
+  #stage {
+    flex: 1; min-width: 320px; overflow: auto;
+    display: flex; align-items: center; justify-content: center;
+    gap: 18px; padding: 18px; flex-wrap: wrap; align-content: center;
+  }
+  .panelBox {
+    flex: 1 1 300px; max-width: 460px; min-width: 260px;
+    background: #151514; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px 12px; position: relative;
+  }
+  .panelBox h3 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+  }
+  .panelBox svg { width: 100%; height: auto; display: block;
+    background: #101010; border: 1px solid var(--grid); border-radius: 6px; }
+  .panelBox .legend { color: var(--muted); font-size: 11px; margin-top: 6px; min-height: 15px; }
+  #dofBadge {
+    position: absolute; top: 8px; right: 12px; display: none;
+    background: rgba(12,163,12,0.15); border: 1px solid rgba(12,163,12,0.5);
+    color: #6fd06f; font-size: 11px; font-weight: 600;
+    border-radius: 6px; padding: 2px 7px;
+  }
+
+  /* ---- right: control panel ---- */
+  #panel {
+    width: 360px; flex: none; overflow-y: auto;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 14px 16px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+       text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+  .seg { display: flex; gap: 6px; }
+  .seg button, .illumBtns button {
+    flex: 1; padding: 7px 4px; border-radius: 7px; border: 1px solid var(--border);
+    background: #262624; color: var(--ink-2); font: 600 12.5px system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .seg button:hover, .illumBtns button:hover { background: #303030; }
+  .seg button.on, .illumBtns button.on {
+    border-color: var(--series-1); color: var(--ink);
+    background: rgba(57,135,229,0.16);
+  }
+  .illumBtns { display: flex; gap: 6px; }
+  .illumBtns button {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 2px 6px;
+  }
+  .illumBtns svg { width: 34px; height: 34px; display: block; }
+
+  .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+  .check input { accent-color: var(--series-1); }
+  .check.disabled { opacity: 0.4; }
+
+  #caption {
+    background: #262624; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2);
+  }
+  #caption b { color: var(--ink); }
+
+  .footnote { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+  .about { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+  .about p:not(:first-child) { margin-top: 6px; }
+
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    main { flex-direction: column; }
+    #panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+    #stage { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>OPC &amp; Resolution Enhancement Explorer</h1>
+  <span class="sub">photolithography &middot; shape correction &amp; phase-shift masking &middot; stylized toy optics</span>
+</header>
+<main>
+  <div id="stage">
+    <div class="panelBox">
+      <h3>Photomask — what we draw</h3>
+      <svg id="maskSvg" viewBox="0 0 400 400" role="img" aria-label="Mask geometry">
+        <g id="maskPhase"></g>
+        <path id="maskMain" fill="rgba(57,135,229,0.92)"></path>
+        <path id="maskSraf" fill="rgba(57,135,229,0.22)" stroke="#7fb3ef"
+              stroke-width="1" stroke-dasharray="4 3"></path>
+        <g id="maskLabels"></g>
+      </svg>
+      <div class="legend" id="maskLegend"></div>
+    </div>
+    <div class="panelBox">
+      <h3>Printed result — what appears on the wafer</h3>
+      <span id="dofBadge" title="sub-resolution assist features widen the usable depth of focus">+DOF</span>
+      <svg id="printSvg" viewBox="0 0 400 400" role="img" aria-label="Printed shape">
+        <defs>
+          <filter id="printBlur" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur id="blurNode" stdDeviation="2"/>
+          </filter>
+        </defs>
+        <path id="printMain" fill="rgba(47,163,107,0.9)" filter="url(#printBlur)"></path>
+        <path id="printTarget" fill="none" stroke="rgba(255,255,255,0.38)"
+              stroke-width="1.2" stroke-dasharray="5 4"></path>
+      </svg>
+      <div class="legend">dashed outline = the intended design target</div>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div>
+      <h2>View</h2>
+      <div class="seg" id="segView">
+        <button data-v="shape" class="on">Shape correction</button>
+        <button data-v="grating">Periodic pattern &middot; PSM</button>
+      </div>
+    </div>
+
+    <div id="ctlShape">
+      <h2>Feature shape</h2>
+      <div class="seg" id="segShape">
+        <button data-v="rect" class="on">Rectangle</button>
+        <button data-v="tpiece">T-piece</button>
+        <button data-v="zigzag">Zigzag</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Illumination source</h2>
+      <div class="illumBtns" id="segIllum">
+        <button data-v="conventional" class="on" title="conventional disc illumination">
+          <svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="13" fill="none"
+            stroke="#4a4a48" stroke-width="1"/><circle cx="17" cy="17" r="7.5"
+            fill="currentColor"/></svg>
+          Conventional
+        </button>
+        <button data-v="annular" title="annular (ring) illumination">
+          <svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="13" fill="none"
+            stroke="#4a4a48" stroke-width="1"/><circle cx="17" cy="17" r="8.5"
+            fill="none" stroke="currentColor" stroke-width="3.6"/></svg>
+          Annular
+        </button>
+        <button data-v="quadrupole" title="quadrupole illumination">
+          <svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="13" fill="none"
+            stroke="#4a4a48" stroke-width="1"/>
+            <circle cx="11" cy="11" r="3" fill="currentColor"/>
+            <circle cx="23" cy="11" r="3" fill="currentColor"/>
+            <circle cx="11" cy="23" r="3" fill="currentColor"/>
+            <circle cx="23" cy="23" r="3" fill="currentColor"/></svg>
+          Quadrupole
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <h2>OPC correction</h2>
+      <div class="seg" id="segOpc">
+        <button data-v="off" class="on">Off</button>
+        <button data-v="rule">Rule-based</button>
+        <button data-v="model">Model-based</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+        <label class="check" id="wrap2d"><input type="checkbox" id="c2d">
+          2-D effects (serifs at corners, hammerheads at line ends)</label>
+        <label class="check" id="wrapSraf"><input type="checkbox" id="cSraf">
+          SRAFs — sub-resolution assist features</label>
+        <label class="check" id="wrapPsm" style="display:none;"><input type="checkbox" id="cPsm">
+          Alternating phase-shift mask (0&deg; / 180&deg;)</label>
+      </div>
+    </div>
+
+    <div>
+      <h2>What's happening</h2>
+      <div id="caption"></div>
+    </div>
+
+    <div>
+      <h2>About this tool</h2>
+      <div class="about">
+        <p>This tool is about <b>photolithography</b> &mdash; printing a
+        chip&rsquo;s features by shining light through a stencil called a
+        <b>photomask</b>. At modern feature sizes the shapes are smaller than
+        the wavelength of the light drawing them, so what lands on the wafer is
+        a blurred version of what&rsquo;s on the mask.</p>
+        <p>Chipmakers fight back by drawing the mask &ldquo;wrong&rdquo; on
+        purpose: <b>optical proximity correction (OPC)</b> adds nudges, serifs,
+        and hammerheads so the blur lands on the shape they actually wanted,
+        while shaped illumination and phase-shift masks squeeze out extra
+        sharpness. Every layer of every chip depends on these corrections
+        being right.</p>
+        <p><b>Everything here is a simplified teaching version, not a real
+        optical simulation.</b> No diffraction is calculated &mdash; the printed
+        shapes are hand-tuned to move in the right direction when you flip a
+        switch. Production OPC runs rigorous, computationally intensive imaging
+        models on large compute clusters for every mask, accurate to
+        nanometers.</p>
+        <p>If the puzzle of &ldquo;draw the wrong shape to print the right
+        one&rdquo; appeals to you, it&rsquo;s a genuine full-time discipline in
+        the fab &mdash; lithography and OPC engineers do exactly this for a
+        living.</p>
+      </div>
+    </div>
+
+    <div class="footnote">
+      Concepts follow standard semiconductor lithography references (optical
+      proximity correction, off-axis illumination, sub-resolution assist
+      features, alternating phase-shift masks). Companion piece to the
+      Czochralski crystal-pulling simulator.
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+/* =====================================================================
+ * OPC & Resolution Enhancement Explorer — stylized photolithography demo
+ *
+ * Deliberately NOT an optical simulation. The "printed" shape is the
+ * design target degraded by three tunable defects —
+ *   corner : corner-rounding radius
+ *   pull   : line-end pullback distance
+ *   inset  : uniform edge loss (feature thinning; negative = bloat)
+ *   soft   : gaussian edge softness (SVG blur stdDeviation)
+ * — whose magnitudes are hand-tuned per illumination mode, then reduced
+ * by multipliers per OPC level. Toggling a control animates the numeric
+ * parameters (320 ms smoothstep) and the print panel is regenerated
+ * each frame, which is what makes the transition feel alive.
+ * ===================================================================== */
+
+/* ---------------- geometry: shapes are clockwise right-angle polygons.
+ * "ends" lists edge indices (edge i runs v[i] -> v[i+1]) that are line
+ * ends (terminating edges), which suffer pullback and get hammerheads.
+ * degrade: per-shape severity scale (big simple features print easier).
+ * twoDEff: how much of the 2-D correction benefit the shape can use —
+ * a plain rectangle has little 2-D complexity, so the checkbox barely
+ * moves it (that contrast is the point of having three shapes). */
+const SHAPES = {
+  rect: {
+    pts: [[80,160],[320,160],[320,240],[80,240]],
+    ends: [1,3], degrade: 0.6, twoDEff: 0.45,
+  },
+  tpiece: {
+    pts: [[90,120],[310,120],[310,190],[235,190],[235,300],[165,300],[165,190],[90,190]],
+    ends: [1,4,7], degrade: 1.0, twoDEff: 1.0,
+  },
+  zigzag: {
+    pts: [[95,120],[230,120],[230,190],[305,190],[305,280],[170,280],[170,210],[95,210]],
+    ends: [3,7], degrade: 1.1, twoDEff: 1.0,
+  },
+};
+
+/* Grating for the periodic/PSM view: 6 bars, 28 wide on a 56 pitch. */
+const GRATE = { n: 6, x0: 46, w: 28, pitch: 56, yTop: 80, yBot: 320 };
+function gratingBars() {
+  const bars = [];
+  for (let k = 0; k < GRATE.n; k++) {
+    const x = GRATE.x0 + k * GRATE.pitch;
+    bars.push({
+      pts: [[x,GRATE.yTop],[x+GRATE.w,GRATE.yTop],[x+GRATE.w,GRATE.yBot],[x,GRATE.yBot]],
+      ends: [0,2], degrade: 1.0, twoDEff: 1.0,
+    });
+  }
+  return bars;
+}
+const BARS = gratingBars();
+
+/* ---------------- stylized process parameters ----------------
+ * Illumination sets the baseline defect budget. Quadrupole is tuned for
+ * horizontal/vertical edges (tiny inset/softness, short pullback) but
+ * pays for it at corners (LARGER corner rounding than conventional) —
+ * deliberately not strictly-best, per the design spec. */
+const ILLUM = {
+  conventional: { corner: 26, pull: 24, inset: 7.0, soft: 2.2 },
+  annular:      { corner: 21, pull: 19, inset: 5.0, soft: 1.7 },
+  quadrupole:   { corner: 30, pull: 15, inset: 2.5, soft: 0.9 },
+};
+/* OPC multipliers on the defect budget. Without 2-D effects, both OPC
+ * levels only fix edge bias (inset); corners/ends stay mostly broken. */
+const OPCM = {
+  off:   { any:  { corner: 1.00, pull: 1.00, inset: 1.00, soft: 1.00 } },
+  rule:  { no2d: { corner: 0.90, pull: 0.85, inset: 0.35, soft: 0.90 },
+           twod: { corner: 0.55, pull: 0.80, inset: 0.35, soft: 0.85 } },
+  model: { no2d: { corner: 0.80, pull: 0.75, inset: 0.15, soft: 0.80 },
+           twod: { corner: 0.15, pull: 0.12, inset: 0.12, soft: 0.55 } },
+};
+/* Grating baseline (per PSM state), scaled by illumination ratio + OPC. */
+const GRATE_BASE = {
+  binary: { corner: 12, pull: 18, inset: -6, soft: 2.4 },
+  psm:    { corner: 4,  pull: 5,  inset:  3, soft: 0.7 },
+};
+
+/* ---------------- ui state ---------------- */
+const state = {
+  view: "shape", shape: "rect",
+  illum: "conventional", opc: "off",
+  twoD: false, sraf: false, psm: false,
+};
+
+/* ---------------- polygon helpers ---------------- */
+function edgeVec(pts, i) {
+  const p = pts[i], q = pts[(i + 1) % pts.length];
+  const dx = q[0] - p[0], dy = q[1] - p[1];
+  const len = Math.hypot(dx, dy);
+  return { p, q, u: [dx / len, dy / len], n: [dy / len, -dx / len], len };
+}
+function lineIntersect(p1, u1, p2, u2) {
+  const det = u1[0] * u2[1] - u1[1] * u2[0];
+  if (Math.abs(det) < 1e-9) return [p2[0], p2[1]];
+  const t = ((p2[0] - p1[0]) * u2[1] - (p2[1] - p1[1]) * u2[0]) / det;
+  return [p1[0] + u1[0] * t, p1[1] + u1[1] * t];
+}
+/* Offset each edge along its outward normal by dArr[i]; vertices are
+ * re-intersected. Vertex i joins edges i-1 and i, preserving indexing. */
+function offsetPoly(pts, dArr) {
+  const n = pts.length, lines = [];
+  for (let i = 0; i < n; i++) {
+    const e = edgeVec(pts, i);
+    lines.push({ p: [e.p[0] + e.n[0] * dArr[i], e.p[1] + e.n[1] * dArr[i]], u: e.u });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = lines[(i - 1 + n) % n], b = lines[i];
+    out.push(lineIntersect(a.p, a.u, b.p, b.u));
+  }
+  return out;
+}
+/* Convexity of vertex i (clockwise polygon, y-down screen coords). */
+function isConvex(pts, i) {
+  const n = pts.length;
+  const a = pts[(i - 1 + n) % n], v = pts[i], b = pts[(i + 1) % n];
+  const c = (v[0] - a[0]) * (b[1] - v[1]) - (v[1] - a[1]) * (b[0] - v[0]);
+  return c > 0;
+}
+function polyToD(pts) {
+  return "M" + pts.map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L") + "Z";
+}
+/* Rounded-corner path: quadratic curve of radius r[i] at each vertex. */
+function roundedD(pts, radii) {
+  const n = pts.length;
+  const pt = (i) => pts[(i + n) % n];
+  let d = "";
+  for (let i = 0; i < n; i++) {
+    const a = pt(i - 1), v = pt(i), b = pt(i + 1);
+    const la = Math.hypot(v[0] - a[0], v[1] - a[1]);
+    const lb = Math.hypot(b[0] - v[0], b[1] - v[1]);
+    const r = Math.min(radii[i], 0.45 * la, 0.45 * lb);
+    const ua = [(v[0] - a[0]) / la, (v[1] - a[1]) / la];
+    const ub = [(b[0] - v[0]) / lb, (b[1] - v[1]) / lb];
+    const pin  = [v[0] - ua[0] * r, v[1] - ua[1] * r];
+    const pout = [v[0] + ub[0] * r, v[1] + ub[1] * r];
+    d += (i === 0 ? "M" : "L") + pin[0].toFixed(1) + " " + pin[1].toFixed(1);
+    d += "Q" + v[0].toFixed(1) + " " + v[1].toFixed(1) + " "
+             + pout[0].toFixed(1) + " " + pout[1].toFixed(1);
+  }
+  return d + "Z";
+}
+
+/* ---------------- mask construction ---------------- */
+/* Rule-based bias: nudge the middle third of each long NON-end edge
+ * outward in a blocky step (a 1-D correction, blind to corners/ends). */
+function staircase(pts, ends, bias) {
+  const n = pts.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const e = edgeVec(pts, i);
+    out.push([e.p[0], e.p[1]]);
+    if (e.len >= 90 && !ends.includes(i)) {
+      const a  = [e.p[0] + e.u[0] * e.len / 3, e.p[1] + e.u[1] * e.len / 3];
+      const b  = [e.p[0] + e.u[0] * 2 * e.len / 3, e.p[1] + e.u[1] * 2 * e.len / 3];
+      out.push(a, [a[0] + e.n[0] * bias, a[1] + e.n[1] * bias],
+                  [b[0] + e.n[0] * bias, b[1] + e.n[1] * bias], b);
+    }
+  }
+  return out;
+}
+function serifD(v, s) { /* clockwise square centered on the corner */
+  const h = s / 2;
+  return polyToD([[v[0]-h,v[1]-h],[v[0]+h,v[1]-h],[v[0]+h,v[1]+h],[v[0]-h,v[1]+h]]);
+}
+function hammerheadD(pts, i, ext, depth) {
+  const e = edgeVec(pts, i);
+  const A = [e.p[0] - e.u[0] * ext, e.p[1] - e.u[1] * ext];
+  const D = [e.q[0] + e.u[0] * ext, e.q[1] + e.u[1] * ext];
+  const B = [A[0] + e.n[0] * depth, A[1] + e.n[1] * depth];
+  const C = [D[0] + e.n[0] * depth, D[1] + e.n[1] * depth];
+  return polyToD([A, B, C, D]);
+}
+/* Full mask path for one feature under the current OPC settings. */
+function maskD(shape, opc, twoD, small) {
+  const k = small ? 0.62 : 1;                 // grating bars use smaller decorations
+  let poly = shape.pts;
+  if (opc === "model") poly = offsetPoly(poly, poly.map(() => 4 * k));
+  let d = polyToD(opc === "rule" ? staircase(poly, shape.ends, 9 * k) : poly);
+  if (twoD && opc !== "off") {
+    const s = (opc === "model" ? 16 : 11) * k;
+    for (let i = 0; i < poly.length; i++)
+      if (isConvex(shape.pts, i)) d += serifD(poly[i], s);
+    if (opc === "model")
+      for (const i of shape.ends) d += hammerheadD(poly, i, 9 * k, 13 * k);
+  }
+  return d;
+}
+function srafD(shape) {
+  let d = "";
+  for (let i = 0; i < shape.pts.length; i++) {
+    const e = edgeVec(shape.pts, i);
+    if (e.len < 85) continue;
+    const off = 26, th = 6, pad = 18;
+    const A = [e.p[0] + e.u[0] * pad + e.n[0] * off, e.p[1] + e.u[1] * pad + e.n[1] * off];
+    const B = [e.q[0] - e.u[0] * pad + e.n[0] * off, e.q[1] - e.u[1] * pad + e.n[1] * off];
+    d += polyToD([A, [A[0] + e.n[0] * th, A[1] + e.n[1] * th],
+                     [B[0] + e.n[0] * th, B[1] + e.n[1] * th], B]);
+  }
+  return d;
+}
+
+/* ---------------- print construction ---------------- */
+function printD(shape, P) {
+  const pts = shape.pts;
+  const d = pts.map((_, i) => -(P.inset) - (shape.ends.includes(i) ? P.pull : 0));
+  const poly = offsetPoly(pts, d);
+  const radii = pts.map((_, i) => {
+    const prevE = (i - 1 + pts.length) % pts.length;
+    let r = P.corner;
+    if (shape.ends.includes(i) || shape.ends.includes(prevE)) r *= 1.5;
+    if (!isConvex(pts, i)) r *= 0.75;
+    return Math.max(0.5, r);
+  });
+  return roundedD(poly, radii);
+}
+
+/* ---------------- parameter targets + animation ---------------- */
+function opcMult() {
+  if (state.opc === "off") return OPCM.off.any;
+  const m = OPCM[state.opc], base = state.twoD ? m.twod : m.no2d;
+  if (state.view === "shape") {
+    /* shapes with little 2-D complexity only partially benefit */
+    const eff = SHAPES[state.shape].twoDEff;
+    if (state.twoD && eff < 1) {
+      const n = m.no2d, t = m.twod, o = {};
+      for (const key in t) o[key] = n[key] + (t[key] - n[key]) * eff;
+      return o;
+    }
+  }
+  return base;
+}
+function targetParams() {
+  const I = ILLUM[state.illum], m = opcMult();
+  if (state.view === "shape") {
+    const g = SHAPES[state.shape].degrade;
+    const P = {
+      corner: I.corner * m.corner * g,
+      pull:   I.pull   * m.pull   * g,
+      inset:  I.inset  * m.inset  * g,
+      soft:   I.soft   * m.soft,
+    };
+    if (state.sraf) P.soft *= 0.8;   // assist features stabilize the image
+    return P;
+  }
+  const B = GRATE_BASE[state.psm ? "psm" : "binary"], C = ILLUM.conventional;
+  return {
+    corner: Math.max(1.5, B.corner * (I.corner / C.corner) * m.corner),
+    pull:   B.pull  * (I.pull  / C.pull)  * m.pull,
+    inset:  B.inset * m.inset,
+    soft:   Math.max(0.3, B.soft * (I.soft / C.soft) * m.soft),
+  };
+}
+
+let cur = targetParams(), anim = null;
+function animateTo(tgt) {
+  const from = { ...cur }, t0 = performance.now(), DUR = 320;
+  if (anim) cancelAnimationFrame(anim);
+  const tick = (now) => {
+    let t = Math.min(1, (now - t0) / DUR);
+    const e = t * t * (3 - 2 * t);                 // smoothstep ease
+    for (const k in tgt) cur[k] = from[k] + (tgt[k] - from[k]) * e;
+    renderPrint();
+    if (t < 1) anim = requestAnimationFrame(tick); else anim = null;
+  };
+  anim = requestAnimationFrame(tick);
+}
+
+/* ---------------- rendering ---------------- */
+const $ = id => document.getElementById(id);
+const maskMain = $("maskMain"), maskSraf = $("maskSraf"),
+      maskPhase = $("maskPhase"), maskLabels = $("maskLabels"),
+      printMain = $("printMain"), printTarget = $("printTarget"),
+      blurNode = $("blurNode");
+
+function renderMask(fade) {
+  let d = "", sd = "", phase = "", labels = "";
+  if (state.view === "shape") {
+    const sh = SHAPES[state.shape];
+    d = maskD(sh, state.opc, state.twoD, false);
+    if (state.sraf) sd = srafD(sh);
+    $("maskLegend").textContent = state.sraf
+      ? "dashed side-bars = SRAFs: too small to print, they only condition the light"
+      : "";
+  } else {
+    for (const bar of BARS) d += maskD(bar, state.opc, state.twoD, true);
+    if (state.psm) {
+      for (let g = 0; g < GRATE.n - 1; g++) {
+        const x = GRATE.x0 + g * GRATE.pitch + GRATE.w;
+        const shifted = g % 2 === 0;
+        if (shifted)
+          phase += `<rect x="${x}" y="${GRATE.yTop}" width="${GRATE.pitch - GRATE.w}"
+            height="${GRATE.yBot - GRATE.yTop}" fill="rgba(154,134,255,0.20)"
+            stroke="rgba(154,134,255,0.45)" stroke-width="1"/>`;
+        labels += `<text x="${x + (GRATE.pitch - GRATE.w) / 2}" y="${GRATE.yTop - 8}"
+          text-anchor="middle" font-size="11" font-family="system-ui"
+          fill="${shifted ? "#b7a8ff" : "#898781"}">${shifted ? "180°" : "0°"}</text>`;
+      }
+      $("maskLegend").textContent =
+        "violet spaces delay the light by half a wavelength (180° phase)";
+    } else {
+      $("maskLegend").textContent = "binary mask: opaque bars, clear spaces";
+    }
+  }
+  maskMain.setAttribute("d", d);
+  maskSraf.setAttribute("d", sd);
+  maskPhase.innerHTML = phase;
+  maskLabels.innerHTML = labels;
+  if (fade) $("maskSvg").animate([{ opacity: 0.35 }, { opacity: 1 }],
+                                 { duration: 280, easing: "ease-out" });
+}
+
+function renderPrint() {
+  let d = "", tgt = "";
+  if (state.view === "shape") {
+    const sh = SHAPES[state.shape];
+    d = printD(sh, cur);
+    tgt = polyToD(sh.pts);
+  } else {
+    for (const bar of BARS) { d += printD(bar, cur); tgt += polyToD(bar.pts); }
+  }
+  printMain.setAttribute("d", d);
+  printTarget.setAttribute("d", tgt);
+  blurNode.setAttribute("stdDeviation", Math.max(0.05, cur.soft).toFixed(2));
+}
+
+/* ---------------- captions ---------------- */
+const CAP = {
+  off: "<b>No correction:</b> the mask is exactly the shape we want, but light simply cannot reproduce this much detail at this scale — corners round off, line ends pull back, and the whole feature prints a little thin. This is the problem OPC exists to solve.",
+  rule_no2d: "<b>Rule-based OPC, edges only:</b> whole edges are nudged outward in simple straight steps, which largely fixes the printed line width. But every edge is treated like an infinite straight line — corners and line ends get no special help, so they still round and pull back.",
+  rule_2d: "<b>Rule-based OPC + 2-D effects:</b> besides the edge nudges, small square serifs are stamped onto the corners. Corners now hold their shape noticeably better, though line ends still come up short.",
+  model_no2d: "<b>Model-based OPC, edges only:</b> the edge bias is fitted tightly to the shape, so the printed width is nearly perfect — but with 2-D effects switched off, corners and ends are still treated as straight edges and keep their rounding.",
+  model_2d: "<b>Model-based OPC + 2-D effects:</b> serifs on the corners and hammerheads on the line ends deliberately over-draw the mask so that the optics “round it back” to almost exactly the intended shape. This is how modern chips are actually patterned.",
+  ill_conventional: "Conventional (disc) illumination is the neutral baseline.",
+  ill_annular: "Annular (ring) illumination sharpens the print modestly and evenly in every direction — a good all-round compromise.",
+  ill_quadrupole: "Quadrupole illumination is tuned for horizontal and vertical edges, which print almost mask-faithful — but notice that corners suffer slightly more in exchange.",
+  note_rect2d: "On a simple rectangle the 2-D toggle barely matters — just four well-behaved corners and two wide ends.",
+  note_zigquad: "The zigzag exposes quadrupole's weakness: many corners, each a little rounder than annular light would leave them.",
+  sraf: "The dashed side-bars (SRAFs) are too small to print themselves — they exist only to condition the light, making the main feature more robust to focus errors (+DOF).",
+  psm_off: "<b>Binary grating:</b> opaque bars and identical clear spaces. At this pitch the light from neighboring spaces blurs together, so the printed bars come out fat, soft, and nearly merged.",
+  psm_on: "<b>Alternating phase-shift:</b> every other space delays the light by half a wavelength (180°). Where a 0° and a 180° space meet, the waves cancel and force a crisp dark line — the printed grating comes out far sharper and finer than a standard mask could manage.",
+  psm_opc: "OPC here mainly protects the bar ends: hammerheads keep them full-length.",
+};
+function updateCaption() {
+  const parts = [];
+  if (state.view === "shape") {
+    if (state.opc === "off") parts.push(CAP.off);
+    else parts.push(CAP[state.opc + (state.twoD ? "_2d" : "_no2d")]);
+    parts.push(CAP["ill_" + state.illum]);
+    if (state.shape === "rect" && state.twoD && state.opc !== "off") parts.push(CAP.note_rect2d);
+    if (state.shape === "zigzag" && state.illum === "quadrupole") parts.push(CAP.note_zigquad);
+    if (state.sraf) parts.push(CAP.sraf);
+  } else {
+    parts.push(state.psm ? CAP.psm_on : CAP.psm_off);
+    parts.push(CAP["ill_" + state.illum]);
+    if (state.opc === "model" && state.twoD) parts.push(CAP.psm_opc);
+  }
+  $("caption").innerHTML = parts.join(" ");
+}
+
+/* ---------------- wiring ---------------- */
+function bindSeg(id, key, cb) {
+  const seg = $(id);
+  seg.querySelectorAll("button").forEach(b => {
+    b.addEventListener("click", () => {
+      if (state[key] === b.dataset.v) return;
+      state[key] = b.dataset.v;
+      seg.querySelectorAll("button").forEach(x => {
+        x.classList.toggle("on", x === b);
+        x.setAttribute("aria-pressed", x === b);
+      });
+      cb();
+    });
+  });
+}
+function refresh(opts = {}) {
+  const shapeView = state.view === "shape";
+  $("ctlShape").style.display = shapeView ? "" : "none";
+  $("wrapSraf").style.display = shapeView ? "" : "none";
+  $("wrapPsm").style.display = shapeView ? "none" : "";
+  $("dofBadge").style.display = shapeView && state.sraf ? "block" : "none";
+  const dis = state.opc === "off";
+  $("c2d").disabled = dis;
+  $("wrap2d").classList.toggle("disabled", dis);
+  renderMask(opts.fadeMask !== false);
+  if (opts.snap) { cur = targetParams(); renderPrint(); }
+  else animateTo(targetParams());
+  updateCaption();
+}
+bindSeg("segView", "view", () => {
+  refresh({ snap: true });
+  $("printSvg").animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 280 });
+});
+bindSeg("segShape", "shape", () => {
+  refresh({ snap: true });
+  $("printSvg").animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 280 });
+});
+bindSeg("segIllum", "illum", () => refresh({ fadeMask: false }));
+bindSeg("segOpc", "opc", () => refresh());
+$("c2d").addEventListener("change", e => { state.twoD = e.target.checked; refresh(); });
+$("cSraf").addEventListener("change", e => { state.sraf = e.target.checked; refresh(); });
+$("cPsm").addEventListener("change", e => { state.psm = e.target.checked; refresh(); });
+
+refresh({ snap: true, fadeMask: false });
+</script>
+</body>
+</html>
